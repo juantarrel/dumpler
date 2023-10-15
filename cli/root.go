@@ -25,6 +25,12 @@ func createViperConfig() (*viper.Viper, error) {
 	config.AddConfigPath(appConfigPath)
 	config.SetConfigName("config")
 	config.SetConfigType("yaml")
+	config.AutomaticEnv()
+	err = fs.CreateConfigFile("config.yaml")
+	if err != nil {
+		return nil, err
+	}
+
 	return config, nil
 }
 
@@ -46,7 +52,6 @@ func (r *rootCmd) Execute(args []string) {
 
 	// Set args for root command
 	r.cmd.SetArgs(args)
-
 	if err := r.cmd.Execute(); err != nil {
 		// Defaults
 		code := 1
@@ -66,6 +71,7 @@ func (r *rootCmd) Execute(args []string) {
 		r.exit(code)
 		return
 	}
+
 	r.exit(0)
 }
 
@@ -93,20 +99,23 @@ Example blah blah blah
 				handler := slog.NewTextHandler(os.Stdout, opts)
 				slog.SetDefault(slog.New(handler))
 			}
-		},
-		PreRunE: func(_ *cobra.Command, _ []string) error {
-			return loadViperConfig(config)
+			err := loadViperConfig(config)
+			if err != nil {
+				slog.Debug("Error: ", err)
+			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-
-			// clients (mysql, postgresql, sql server)
-
-			return nil
+			return cmd.Help()
 		},
 	}
 
 	cmd.PersistentFlags().BoolVarP(&root.verbose, "verbose", "v", false,
 		"enable more verbose output for debugging")
+
+	cmd.AddCommand(
+		newConfigureCmd(config).cmd,
+		newMysqlCmd(config).cmd,
+	)
 
 	cc.Init(&cc.Config{
 		RootCmd:       cmd,
