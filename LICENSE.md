@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2023 Juan Luis Talamante Arreola
+Copyright (c) 2023 Tarrel
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

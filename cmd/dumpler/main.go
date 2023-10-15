@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/juantarrel/dumper/cli"
+	"github.com/juantarrel/dumpler/cli"
 	"os"
 )
 

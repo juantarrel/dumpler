@@ -3,7 +3,7 @@ package cli
 import (
 	"errors"
 	cc "github.com/ivanpirog/coloredcobra"
-	"github.com/juantarrel/dumper/fs"
+	"github.com/juantarrel/dumpler/fs"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"log/slog"
