@@ -1,0 +1,73 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:base",
+    ":maintainLockFilesWeekly",
+    ":rebaseStalePrs",
+    ":semanticCommits",
+    ":semanticCommitScope(deps)",
+    ":preserveSemverRanges",
+    ":enablePreCommit",
+    ":pinDependencies",
+    "helpers:pinGitHubActionDigests",
+    "regexManagers:githubActionsVersions"
+  ],
+  "dependencyDashboard": true,
+  "assignees": [
+    "juantarrel"
+  ],
+  "rebaseWhen": "behind-base-branch",
+  "stabilityDays": 7,
+  "labels": [
+    "dependencies"
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": [
+      "type:security"
+    ],
+    "stabilityDays": 0
+  },
+  "automergeType": "branch",
+  "pip_requirements": {
+    "enabled": false
+  },
+  "packageRules": [
+    {
+      "description": "Require dashboard approval for major updates",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Automerge non-major updates",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "lockFileMaintenance"
+      ],
+      "automerge": true
+    },
+    {
+      "matchDepTypes": [
+        "require"
+      ],
+      "groupName": "GO modules",
+      "postUpdateOptions": [
+        "gomodTidy"
+      ],
+      "separateMajorMinor": false
+    },
+    {
+      "matchDepTypes": [
+        "provider",
+        "required_provider",
+        "required_version",
+        "module"
+      ],
+      "rangeStrategy": "widen"
+    }
+  ]
+}
