@@ -17,6 +17,10 @@ type pingCmd struct {
 	cmd *cobra.Command
 }
 
+type dumpCmd struct {
+	cmd *cobra.Command
+}
+
 func newMysqlCmd(config *viper.Viper) *mysqlCmd {
 	mysqlStruct := &mysqlCmd{}
 	cmd := &cobra.Command{
@@ -33,6 +37,7 @@ func newMysqlCmd(config *viper.Viper) *mysqlCmd {
 
 	cmd.AddCommand(
 		newPingCmd(config).cmd,
+		newDumpCmd(config).cmd,
 	)
 	mysqlStruct.cmd = cmd
 	return mysqlStruct
@@ -64,4 +69,31 @@ func newPingCmd(config *viper.Viper) *pingCmd {
 	}
 	ping.cmd = cmd
 	return ping
+}
+
+func newDumpCmd(config *viper.Viper) *dumpCmd {
+	dump := &dumpCmd{}
+	cmd := &cobra.Command{
+		Use:                   "dump",
+		Short:                 "Dump database",
+		Long:                  strings.TrimSpace("Dump Database blah blah"),
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.NoArgs,
+		ValidArgsFunction:     cobra.NoFileCompletions,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mysql := &infrastructure.MySQL{}
+			context := infrastructure.NewContext(mysql)
+			_, err := context.ConnectToDatabase(config)
+			if err != nil {
+				slog.Error("Panic error", err)
+			} else {
+				slog.Debug(fmt.Sprintf("Connected to Database: %s", config.GetString("mysql-database")))
+			}
+			mysql.Dump()
+			return nil
+		},
+	}
+
+	dump.cmd = cmd
+	return dump
 }

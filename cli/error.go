@@ -9,3 +9,7 @@ type exitError struct {
 	code    int
 	details string
 }
+
+func (e *exitError) Error() string {
+	return e.err.Error()
+}
