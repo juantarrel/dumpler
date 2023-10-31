@@ -34,6 +34,8 @@ type dump struct {
 	CompleteTime  string
 }
 
+var batchSize = 10000
+
 func (m *MySQL) Connect(config *viper.Viper) (*sql.DB, error) {
 	var host string
 	if config.IsSet("mysql-host") {
@@ -161,7 +163,7 @@ func (m *MySQL) getTables() ([]string, error) {
 }
 
 // createTableDML @TODO needs to be in strategy pattern
-func (m *MySQL) createTableDDL(name string) (string, error) {
+func (m *MySQL) CreateTableDDL(name string) (string, error) {
 	slog.Debug(fmt.Sprintf("DDL for table %s started", name))
 	var tableReturn, tableSql sql.NullString
 	err := m.db.QueryRow(fmt.Sprintf("SHOW CREATE TABLE %s", name)).Scan(&tableReturn, &tableSql)
@@ -209,23 +211,38 @@ func (m *MySQL) createTableDML(name string, db *sql.DB, file *os.File) error {
 		return errors.New(fmt.Sprintf("No columns in table %s", name))
 	}
 
+	batchCount := 0
+	var dataBuffer strings.Builder
+	data := make([]*sql.NullString, len(columns))
+	ptrs := make([]interface{}, len(columns))
+
+	for i := range data {
+		ptrs[i] = &data[i]
+	}
+
 	for rows.Next() {
-		data := make([]*sql.NullString, len(columns))
-		ptrs := make([]interface{}, len(columns))
-
-		for i := range data {
-			ptrs[i] = &data[i]
-		}
-
 		err = rows.Scan(ptrs...)
 
 		rowString := ""
 		for _, value := range data {
 			if value != nil {
 				rowString += "'" + strings.Trim(value.String, "\r") + "',"
+			} else {
+				rowString += "'NULL',"
 			}
 		}
-		_, err = file.WriteString(rowString + "\n")
+		dataBuffer.WriteString(rowString)
+		batchCount++
+
+		if batchCount >= batchSize {
+			file.WriteString(dataBuffer.String())
+			dataBuffer.Reset()
+			batchCount = 0
+		}
+	}
+
+	if dataBuffer.Len() > 0 {
+		file.WriteString(dataBuffer.String())
 	}
 
 	slog.Debug(fmt.Sprintf("DML for table %s finished", name))
