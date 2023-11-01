@@ -18,23 +18,23 @@ import (
 )
 
 type MySQL struct {
-	db *sql.DB
+	db     *sql.DB
+	squema string
 }
 
-type table struct {
-	Name   string
-	SQL    string
-	Values string
+type Table struct {
+	Name string
+	Size string
 }
 
 type dump struct {
 	DumpVersion   string
 	ServerVersion string
-	Tables        []*table
+	Tables        []*Table
 	CompleteTime  string
 }
 
-var batchSize = 10000
+var batchSize = 60000
 
 func (m *MySQL) Connect(config *viper.Viper) (*sql.DB, error) {
 	var host string
@@ -61,6 +61,8 @@ func (m *MySQL) Connect(config *viper.Viper) (*sql.DB, error) {
 	if config.IsSet("mysql-database") {
 		dbase = config.GetString("mysql-database")
 	}
+
+	m.squema = dbase
 
 	connectionString := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", username, password, host, port, dbase)
 	slog.Debug("ConnectionString: " + connectionString)
@@ -105,24 +107,24 @@ func (m *MySQL) Dump() {
 	slog.Debug(fmt.Sprintf("Dumping %d tables", len(tables)))
 
 	maxConcurrent := runtime.NumCPU()
-	maxConcurrentToUse := int(math.Floor(float64(maxConcurrent / 2)))
+	maxConcurrentToUse := int(math.Floor(float64(maxConcurrent) * 0.3))
 	slog.Debug(fmt.Sprintf("Num CPU: %d", maxConcurrent))
 	slog.Debug(fmt.Sprintf("Num CPU: %d", maxConcurrentToUse))
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, maxConcurrentToUse)
 	// Get sql for each table
-	for _, name := range tables {
+	for _, table := range tables {
 		wg.Add(1)
 		var file *os.File
 		func() {
 			filePath, err := fs.GetAppCacheDir()
-			file, err = os.Create(fmt.Sprintf("%s/%s.sql", filePath, name))
+			file, err = os.Create(fmt.Sprintf("%s/%s.sql", filePath, table.Name))
 			if err != nil {
 				log.Fatal(err)
 			}
 		}()
 
-		go func(name string, file *os.File) {
+		go func(name Table, file *os.File) {
 			semaphore <- struct{}{}
 			defer func() {
 				<-semaphore
@@ -132,16 +134,25 @@ func (m *MySQL) Dump() {
 				log.Fatal(err)
 			}
 			wg.Done()
-		}(name, file)
+		}(table, file)
 	}
 	wg.Wait()
 }
 
 // getTables @TODO needs to be in strategy pattern
-func (m *MySQL) getTables() ([]string, error) {
-	var tables []string
+func (m *MySQL) getTables() ([]Table, error) {
+	var tables []Table
 
-	rows, err := m.db.Query("SHOW TABLES")
+	rows, err := m.db.Query(fmt.Sprintf(`
+SELECT
+    table_name "Table Name",
+    round((data_length + index_length) / 1024 / 1024 / 1024, 2) "Size (GB)"
+FROM
+    information_schema.tables
+WHERE
+    table_schema = '%s'
+ORDER BY 2 DESC
+`, m.squema))
 	if err != nil {
 		slog.Error("Error: ", err)
 	}
@@ -153,11 +164,12 @@ func (m *MySQL) getTables() ([]string, error) {
 	}(rows)
 
 	for rows.Next() {
-		var table sql.NullString
-		if err := rows.Scan(&table); err != nil {
+		var tableName sql.NullString
+		var size sql.NullString
+		if err := rows.Scan(&tableName, &size); err != nil {
 			return tables, err
 		}
-		tables = append(tables, table.String)
+		tables = append(tables, Table{Name: tableName.String, Size: size.String})
 	}
 	return tables, rows.Err()
 }
@@ -174,14 +186,19 @@ func (m *MySQL) CreateTableDDL(name string) (string, error) {
 	}
 
 	if tableReturn.String != name {
-		return "", errors.New("Returned table is not the same as requested table")
+		return "", errors.New("returned table is not the same as requested table")
 	}
 	slog.Debug(fmt.Sprintf("DDL for table %s finished", name))
 	return tableSql.String, nil
 }
 
 // createTableDML  @TODO needs to be in strategy pattern
-func (m *MySQL) createTableDML(name string, db *sql.DB, file *os.File) error {
+func (m *MySQL) createTableDML(table Table, db *sql.DB, file *os.File) error {
+	start := time.Now()
+	defer func() {
+		end := time.Now()
+		slog.Debug(fmt.Sprintf("DML for table %s with size %s GB finished, cost %s", table.Name, table.Size, end.Sub(start)))
+	}()
 	defer func(file *os.File) {
 		err := file.Close()
 		if err != nil {
@@ -189,9 +206,9 @@ func (m *MySQL) createTableDML(name string, db *sql.DB, file *os.File) error {
 		}
 	}(file)
 
-	slog.Debug(fmt.Sprintf("DML for table %s started", name))
+	slog.Debug(fmt.Sprintf("DML for table %s with size %s GB started", table.Name, table.Size))
 
-	rows, err := db.Query(fmt.Sprintf("SELECT * FROM %s", name))
+	rows, err := db.Query(fmt.Sprintf("SELECT * FROM %s", table.Name))
 	if err != nil {
 		slog.Error("Error: ", err)
 		return err
@@ -208,7 +225,7 @@ func (m *MySQL) createTableDML(name string, db *sql.DB, file *os.File) error {
 		return err
 	}
 	if len(columns) == 0 {
-		return errors.New(fmt.Sprintf("No columns in table %s", name))
+		return errors.New(fmt.Sprintf("No columns in table %s", table.Name))
 	}
 
 	batchCount := 0
@@ -245,7 +262,6 @@ func (m *MySQL) createTableDML(name string, db *sql.DB, file *os.File) error {
 		file.WriteString(dataBuffer.String())
 	}
 
-	slog.Debug(fmt.Sprintf("DML for table %s finished", name))
 	return rows.Err()
 }
 
