@@ -116,20 +116,27 @@ func (m *MySQL) Dump() {
 	for _, table := range tables {
 		wg.Add(1)
 		var file *os.File
-		func() {
-			filePath, err := fs.GetAppCacheDir()
-			file, err = os.Create(fmt.Sprintf("%s/%s.sql", filePath, table.Name))
-			if err != nil {
-				log.Fatal(err)
-			}
-		}()
+		filePath, err := fs.GetAppCacheDir()
+		file, err = os.Create(fmt.Sprintf("%s/%s.sql", filePath, table.Name))
+		if err != nil {
+			log.Fatal(err)
+		}
 
-		go func(name Table, file *os.File) {
+		go func(table Table, file *os.File) {
 			semaphore <- struct{}{}
 			defer func() {
 				<-semaphore
 			}()
-			err = m.createTableDML(name, m.db, file)
+			schema, _ := m.CreateTableDDL(table.Name)
+			fileSchema, err := os.Create(fmt.Sprintf("%s/schema-%s.sql", filePath, table.Name))
+			if err != nil {
+				log.Fatal(err)
+			}
+			_, err = fileSchema.WriteString(schema + "\r")
+			if err != nil {
+				return
+			}
+			err = m.createTableDML(table, m.db, file)
 			if err != nil {
 				log.Fatal(err)
 			}
