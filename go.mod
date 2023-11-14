@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/ivanpirog/coloredcobra v1.0.1
-	github.com/spf13/cobra v1.7.0
+	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.17.0
 	github.com/stretchr/testify v1.8.4
 )
