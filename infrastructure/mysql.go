@@ -45,8 +45,9 @@ func (m *SQL) Connect(config *viper.Viper) (*sql.DB, error) {
 		dbase = config.GetString("mysql-database")
 	}
 
+	connectionSecret := fmt.Sprintf("%s:******@tcp(%s:%s)/%s", username, host, port, dbase)
 	connectionString := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", username, password, host, port, dbase)
-	slog.Debug("ConnectionString: " + connectionString)
+	slog.Debug("ConnectionString: " + connectionSecret)
 	db, err := sql.Open("mysql", connectionString)
 	if err != nil {
 		slog.Error("Panic occurred when is trying to connect to database", "error", err)
