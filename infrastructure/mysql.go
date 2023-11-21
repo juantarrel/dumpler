@@ -17,13 +17,9 @@ import (
 	"time"
 )
 
-type MySQL struct {
-	db *sql.DB
-}
-
 var batchSize = 45000
 
-func (m *MySQL) Connect(config *viper.Viper) (*sql.DB, error) {
+func (m *SQL) Connect(config *viper.Viper) (*sql.DB, error) {
 	var host string
 	if config.IsSet("mysql-host") {
 		host = config.GetString("mysql-host")
@@ -62,7 +58,7 @@ func (m *MySQL) Connect(config *viper.Viper) (*sql.DB, error) {
 	return db, nil
 }
 
-func (m *MySQL) Ping() {
+func (m *SQL) Ping() {
 	defer func(db *sql.DB) {
 		err := db.Close()
 		if err != nil {
@@ -76,7 +72,7 @@ func (m *MySQL) Ping() {
 	fmt.Println("Database exists")
 }
 
-func (m *MySQL) Dump() {
+func (m *SQL) Dump() {
 	start := time.Now()
 	log.Printf("[info] [source] start at %s\n", start.Format("2006-01-02 15:04:05"))
 	defer func() {
@@ -154,7 +150,7 @@ func (m *MySQL) Dump() {
 	}
 }
 
-func (m *MySQL) getTables() ([]string, error) {
+func (m *SQL) getTables() ([]string, error) {
 	var tables []string
 
 	rows, err := m.db.Query("SHOW TABLES")
@@ -178,7 +174,7 @@ func (m *MySQL) getTables() ([]string, error) {
 	return tables, rows.Err()
 }
 
-func (m *MySQL) CreateTableDDL(name string) (string, error) {
+func (m *SQL) CreateTableDDL(name string) (string, error) {
 	slog.Debug(fmt.Sprintf("DDL for table %s started", name))
 	var tableReturn, tableSql sql.NullString
 	err := m.db.QueryRow(fmt.Sprintf("SHOW CREATE TABLE %s", name)).Scan(&tableReturn, &tableSql)
@@ -196,7 +192,7 @@ func (m *MySQL) CreateTableDDL(name string) (string, error) {
 }
 
 // createTableDML  @TODO needs to be in strategy pattern
-func (m *MySQL) createTableDML(name string, db *sql.DB, file *os.File) error {
+func (m *SQL) createTableDML(name string, db *sql.DB, file *os.File) error {
 	defer func(file *os.File) {
 		err := file.Close()
 		if err != nil {
@@ -272,6 +268,6 @@ func (m *MySQL) createTableDML(name string, db *sql.DB, file *os.File) error {
 	return rows.Err()
 }
 
-func (m *MySQL) Bulk(viper *viper.Viper) error {
+func (m *SQL) Bulk(viper *viper.Viper) error {
 	return nil
 }

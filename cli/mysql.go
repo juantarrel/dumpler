@@ -53,7 +53,7 @@ func newPingCmd(config *viper.Viper) *pingCmd {
 		Args:                  cobra.NoArgs,
 		ValidArgsFunction:     cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			mysql := &infrastructure.MySQL{}
+			mysql := &infrastructure.SQL{}
 			context := infrastructure.NewContext(mysql)
 			db, _ := context.ConnectToDatabase(config)
 			err := db.Ping()
@@ -81,7 +81,7 @@ func newDumpCmd(config *viper.Viper) *dumpCmd {
 		Args:                  cobra.NoArgs,
 		ValidArgsFunction:     cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mysql := &infrastructure.MySQL{}
+			mysql := &infrastructure.SQL{}
 			context := infrastructure.NewContext(mysql)
 			_, err := context.ConnectToDatabase(config)
 			if err != nil {
