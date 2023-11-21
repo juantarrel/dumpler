@@ -21,20 +21,7 @@ type MySQL struct {
 	db *sql.DB
 }
 
-type table struct {
-	Name   string
-	SQL    string
-	Values string
-}
-
-type dump struct {
-	DumpVersion   string
-	ServerVersion string
-	Tables        []*table
-	CompleteTime  string
-}
-
-var batchSize = 10000
+var batchSize = 45000
 
 func (m *MySQL) Connect(config *viper.Viper) (*sql.DB, error) {
 	var host string
@@ -100,44 +87,73 @@ func (m *MySQL) Dump() {
 	tables, err := m.getTables()
 	if err != nil {
 		slog.Error("Error: ", err)
+		return
 	}
 
 	slog.Debug(fmt.Sprintf("Dumping %d tables", len(tables)))
 
 	maxConcurrent := runtime.NumCPU()
-	maxConcurrentToUse := int(math.Floor(float64(maxConcurrent / 2)))
+	maxConcurrentToUse := int(math.Floor(float64(maxConcurrent) * 0.4))
 	slog.Debug(fmt.Sprintf("Num CPU: %d", maxConcurrent))
-	slog.Debug(fmt.Sprintf("Num CPU: %d", maxConcurrentToUse))
+	slog.Debug(fmt.Sprintf("Num CPU to use: %d", maxConcurrentToUse))
+
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, maxConcurrentToUse)
-	// Get sql for each table
+
+	if err != nil {
+		slog.Error("Error: ", err)
+		return
+	}
+	defer m.db.Close()
+
+	var errorsMu sync.Mutex
+	var allErrors []error
+
+	filePath, err := fs.GetAppCacheDir()
+	if err != nil {
+		errorsMu.Lock()
+		allErrors = append(allErrors, err)
+		errorsMu.Unlock()
+		return
+	}
+	counter := 0
 	for _, name := range tables {
 		wg.Add(1)
-		var file *os.File
-		func() {
-			filePath, err := fs.GetAppCacheDir()
-			file, err = os.Create(fmt.Sprintf("%s/%s.sql", filePath, name))
-			if err != nil {
-				log.Fatal(err)
-			}
-		}()
-
-		go func(name string, file *os.File) {
+		go func(name string) {
+			defer wg.Done()
 			semaphore <- struct{}{}
 			defer func() {
 				<-semaphore
 			}()
+
+			file, err := os.Create(fmt.Sprintf("%s/%s.sql", filePath, name))
+			if err != nil {
+				errorsMu.Lock()
+				allErrors = append(allErrors, err)
+				errorsMu.Unlock()
+			}
+			defer file.Close()
+
 			err = m.createTableDML(name, m.db, file)
 			if err != nil {
-				log.Fatal(err)
+				errorsMu.Lock()
+				allErrors = append(allErrors, err)
+				errorsMu.Unlock()
 			}
-			wg.Done()
-		}(name, file)
+			counter++
+			slog.Debug(fmt.Sprintf("%d/%d", counter, len(tables)))
+		}(name)
 	}
+
 	wg.Wait()
+
+	if len(allErrors) > 0 {
+		for _, err := range allErrors {
+			slog.Error("Error: ", err)
+		}
+	}
 }
 
-// getTables @TODO needs to be in strategy pattern
 func (m *MySQL) getTables() ([]string, error) {
 	var tables []string
 
@@ -162,7 +178,6 @@ func (m *MySQL) getTables() ([]string, error) {
 	return tables, rows.Err()
 }
 
-// createTableDML @TODO needs to be in strategy pattern
 func (m *MySQL) CreateTableDDL(name string) (string, error) {
 	slog.Debug(fmt.Sprintf("DDL for table %s started", name))
 	var tableReturn, tableSql sql.NullString
@@ -213,83 +228,50 @@ func (m *MySQL) createTableDML(name string, db *sql.DB, file *os.File) error {
 
 	batchCount := 0
 	var dataBuffer strings.Builder
-	data := make([]*sql.NullString, len(columns))
-	ptrs := make([]interface{}, len(columns))
+	data := make([]string, len(columns))
+	pointersData := make([]interface{}, len(columns))
 
 	for i := range data {
-		ptrs[i] = &data[i]
+		pointersData[i] = &data[i]
 	}
 
 	for rows.Next() {
-		err = rows.Scan(ptrs...)
+		err = rows.Scan(pointersData...)
 
-		rowString := ""
-		for _, value := range data {
-			if value != nil {
-				rowString += "'" + strings.Trim(value.String, "\r") + "',"
+		for i, value := range data {
+			comma := ","
+			if i == len(data)-1 {
+				comma = ""
+			}
+			if value != "NULL" {
+				dataBuffer.WriteString("'" + strings.Trim(value, "\r") + "'" + comma)
 			} else {
-				rowString += "'NULL',"
+				dataBuffer.WriteString(value + comma)
+
 			}
 		}
-		dataBuffer.WriteString(rowString)
+		dataBuffer.WriteString("\n")
 		batchCount++
 
 		if batchCount >= batchSize {
-			file.WriteString(dataBuffer.String())
+			if _, err := file.WriteString(dataBuffer.String()); err != nil {
+				return err
+			}
 			dataBuffer.Reset()
 			batchCount = 0
 		}
 	}
 
 	if dataBuffer.Len() > 0 {
-		file.WriteString(dataBuffer.String())
+		if _, err := file.WriteString(dataBuffer.String()); err != nil {
+			return err
+		}
 	}
 
 	slog.Debug(fmt.Sprintf("DML for table %s finished", name))
 	return rows.Err()
 }
 
-func (m *MySQL) getDatabaseSize(database string) (string, error) {
-	var tableReturn, tableSql sql.NullString
-	query := `
-		SELECT
-			table_schema "Database Name",
-			sum(data_length + index_length) / 1024 / 1024 / 1024 "Size (GB)"
-		FROM
-			information_schema.tables
-		GROUP BY
-			table_schema;
-`
-
-	err := m.db.QueryRow(query).Scan(&tableReturn, &tableSql)
-
-	if err != nil {
-		slog.Error("Error: ", err)
-		return "", err
-	}
-
-	return tableSql.String, nil
-}
-
-func (m *MySQL) getTableSize(database, table string) (string, error) {
-	var tableReturn, tableSql sql.NullString
-	query := `
-		SELECT
-			table_name "Table Name",
-			table_schema "Database Name",
-			round((data_length + index_length) / 1024 / 1024 / 1024, 2) "Size (GB)"
-		FROM
-			information_schema.tables
-		WHERE
-			table_schema = 'database'
-			AND table_name = 'table';
-`
-	err := m.db.QueryRow(query).Scan(&tableReturn, &tableSql)
-
-	if err != nil {
-		slog.Error("Error: ", err)
-		return "", err
-	}
-
-	return tableSql.String, nil
+func (m *MySQL) Bulk(viper *viper.Viper) error {
+	return nil
 }

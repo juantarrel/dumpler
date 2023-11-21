@@ -7,6 +7,8 @@ import (
 
 type Database interface {
 	Connect(*viper.Viper) (*sql.DB, error)
+	Dump()
+	Bulk(*viper.Viper) error
 }
 
 type Context struct {
